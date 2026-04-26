@@ -35,6 +35,7 @@ public class SecurityConfig {
         .authorizeHttpRequests(auth -> auth
             .requestMatchers("/api/auth/login", "/api/auth/**").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/prompts/**").permitAll()
+            .requestMatchers(HttpMethod.GET, "/api/llms/**").permitAll()
             .anyRequest().authenticated())
         .oauth2ResourceServer(oauth2 -> oauth2
             .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())))

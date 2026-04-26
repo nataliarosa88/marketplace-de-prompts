@@ -6,6 +6,7 @@ import { usePromptContext } from "@/context/PromptContext";
 import { copyPrompt as copyPromptApi } from "@/data/promptApi";
 import { Prompt } from "@/types/prompt";
 import { getToken } from "@/data/authStore";
+import { createLlm, deleteLlm, fetchAdminLlms, fetchLlms, LlmOption } from "@/data/llmApi";
 
 const PAGE_SIZE = 9;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -20,13 +21,14 @@ export function PromptVaultApp() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [toast, setToast] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
-  const [form, setForm] = useState({ title: "", body: "", author: "", tags: "", model: "", desc: "" });
+  const [form, setForm] = useState({ title: "", body: "", author: "", tags: [] as string[], model: "", desc: "" });
+  const [tagInput, setTagInput] = useState("");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [loginOpen, setLoginOpen] = useState(false);
   const [loginForm, setLoginForm] = useState({ email: "", password: "" });
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [registerForm, setRegisterForm] = useState({ email: "", password: "", confirm: "" });
-  const [adminTab, setAdminTab] = useState<"pending" | "users">("pending");
+  const [adminTab, setAdminTab] = useState<"pending" | "users" | "llms">("pending");
   const [adminOpen, setAdminOpen] = useState(false);
   const [pending, setPending] = useState<Prompt[]>([]);
   const [pendingViewId, setPendingViewId] = useState<string | null>(null);
@@ -37,6 +39,11 @@ export function PromptVaultApp() {
   const [currentPage, setCurrentPage] = useState(1);
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
+  const [llms, setLlms] = useState<LlmOption[]>([]);
+  const [adminLlms, setAdminLlms] = useState<LlmOption[]>([]);
+  const [newLlmName, setNewLlmName] = useState("");
 
   useEffect(() => {
     const saved = window.localStorage.getItem("promptvault_theme");
@@ -58,6 +65,10 @@ export function PromptVaultApp() {
   useEffect(() => {
     const dismissed = window.localStorage.getItem("promptvault_onboarding_dismissed") === "1";
     setOnboardingDismissed(dismissed);
+  }, []);
+
+  useEffect(() => {
+    void loadLlms();
   }, []);
 
   const visiblePrompts = useMemo(() => {
@@ -126,6 +137,25 @@ export function PromptVaultApp() {
     }
   }, [currentPage, totalPages]);
 
+  const searchSuggestions = useMemo(() => {
+    const normalized = search.trim().toLowerCase();
+    if (!normalized) return [];
+    const values = new Set<string>();
+
+    prompts.forEach((prompt) => {
+      const candidates = [prompt.title, prompt.author ?? "", prompt.desc ?? "", ...(prompt.tags ?? [])];
+      candidates.forEach((candidate) => {
+        const value = candidate.trim();
+        if (!value) return;
+        if (!value.toLowerCase().includes(normalized)) return;
+        if (value.toLowerCase() === normalized) return;
+        values.add(value);
+      });
+    });
+
+    return Array.from(values).slice(0, 8);
+  }, [prompts, search]);
+
   const selectedPrompt = useMemo(
     () => prompts.find((p) => p.id === currentViewId) ?? null,
     [currentViewId, prompts],
@@ -182,7 +212,8 @@ export function PromptVaultApp() {
       return;
     }
     setEditingId(null);
-    setForm({ title: "", body: "", author: user?.email ?? "", tags: "", model: "", desc: "" });
+    setForm({ title: "", body: "", author: user?.email ?? "", tags: [], model: "", desc: "" });
+    setTagInput("");
     setFormOpen(true);
   }
 
@@ -198,10 +229,11 @@ export function PromptVaultApp() {
       title: prompt.title,
       body: prompt.body,
       author: prompt.author ?? "",
-      tags: (prompt.tags ?? []).join(", "),
+      tags: [...(prompt.tags ?? [])],
       model: prompt.model ?? "",
       desc: prompt.desc ?? "",
     });
+    setTagInput("");
     setFormOpen(true);
     setCurrentViewId(null);
   }
@@ -211,10 +243,7 @@ export function PromptVaultApp() {
       title: form.title.trim(),
       body: form.body.trim(),
       author: form.author.trim() || undefined,
-      tags: form.tags
-        .split(",")
-        .map((t) => t.trim().toLowerCase())
-        .filter(Boolean),
+      tags: form.tags,
       model: form.model.trim() || undefined,
       desc: form.desc.trim() || undefined,
     };
@@ -250,6 +279,16 @@ export function PromptVaultApp() {
     showToast("Prompt removido");
   }
 
+  async function loadLlms() {
+    const models = await fetchLlms();
+    setLlms(models);
+  }
+
+  async function loadAdminLlms() {
+    const models = await fetchAdminLlms();
+    setAdminLlms(models);
+  }
+
   function canEditPrompt(prompt: Prompt) {
     if (isAdmin) return true;
     if (!user?.email) return false;
@@ -259,6 +298,12 @@ export function PromptVaultApp() {
   function dismissOnboarding() {
     window.localStorage.setItem("promptvault_onboarding_dismissed", "1");
     setOnboardingDismissed(true);
+  }
+
+  function applySearchSuggestion(value: string) {
+    setSearch(value);
+    setSearchFocused(false);
+    setActiveSuggestionIndex(-1);
   }
 
   function formatCreatedAt(value?: number) {
@@ -271,6 +316,30 @@ export function PromptVaultApp() {
       second: "2-digit",
       hour12: false,
     });
+  }
+
+  function addTag(value: string) {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return;
+    if (form.tags.includes(normalized)) return;
+    setForm((prev) => ({ ...prev, tags: [...prev.tags, normalized] }));
+    setTagInput("");
+  }
+
+  function removeTag(tag: string) {
+    setForm((prev) => ({ ...prev, tags: prev.tags.filter((item) => item !== tag) }));
+  }
+
+  function onTagInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter" || event.key === "," || event.key === "Tab") {
+      event.preventDefault();
+      addTag(tagInput);
+      return;
+    }
+    if (event.key === "Backspace" && !tagInput && form.tags.length) {
+      const last = form.tags[form.tags.length - 1];
+      removeTag(last);
+    }
   }
 
   async function handleClearAll() {
@@ -351,6 +420,28 @@ export function PromptVaultApp() {
     setUsers(data);
   }
 
+  async function handleAddLlm() {
+    const name = newLlmName.trim();
+    if (!name) {
+      showToast("Digite o nome da LLM");
+      return;
+    }
+    await createLlm(name);
+    setNewLlmName("");
+    await Promise.all([loadAdminLlms(), loadLlms()]);
+    showToast("LLM cadastrada");
+  }
+
+  async function handleDeleteLlm(id: string) {
+    const result = await deleteLlm(id);
+    await Promise.all([loadAdminLlms(), loadLlms()]);
+    if (result.deleted) {
+      showToast("LLM removida");
+      return;
+    }
+    showToast("LLM inativada (ja estava em uso)");
+  }
+
   async function approvePrompt(id: string) {
     const token = getToken();
     if (!token) return;
@@ -412,6 +503,7 @@ export function PromptVaultApp() {
                   try {
                     await loadPending();
                     await loadUsers();
+                    await loadAdminLlms();
                   } catch (err) {
                     showToast((err as Error).message);
                   }
@@ -526,7 +618,46 @@ export function PromptVaultApp() {
                 placeholder='pesquisar prompts..."'
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => window.setTimeout(() => setSearchFocused(false), 120)}
+                onKeyDown={(event) => {
+                  if (!searchSuggestions.length) return;
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    setActiveSuggestionIndex((prev) => (prev + 1) % searchSuggestions.length);
+                    return;
+                  }
+                  if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    setActiveSuggestionIndex((prev) => (prev <= 0 ? searchSuggestions.length - 1 : prev - 1));
+                    return;
+                  }
+                  if (event.key === "Enter" && activeSuggestionIndex >= 0) {
+                    event.preventDefault();
+                    applySearchSuggestion(searchSuggestions[activeSuggestionIndex]);
+                    return;
+                  }
+                  if (event.key === "Escape") {
+                    setSearchFocused(false);
+                    setActiveSuggestionIndex(-1);
+                  }
+                }}
               />
+              {searchFocused && searchSuggestions.length ? (
+                <div className="search-autocomplete">
+                  {searchSuggestions.map((suggestion, index) => (
+                    <button
+                      key={`${suggestion}-${index}`}
+                      className={`search-suggestion ${activeSuggestionIndex === index ? "active" : ""}`}
+                      onMouseEnter={() => setActiveSuggestionIndex(index)}
+                      onClick={() => applySearchSuggestion(suggestion)}
+                      type="button"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
             <select value={sort} onChange={(event) => setSort(event.target.value)}>
               <option value="newest">-- recentes</option>
@@ -742,11 +873,37 @@ export function PromptVaultApp() {
               <div className="field-row">
                 <div>
                   <div className="field-label">tags</div>
-                  <input className="field-input" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
+                  <div className="tags-input-wrap">
+                    <div className="tags-chip-list">
+                      {form.tags.map((tag) => (
+                        <button key={tag} type="button" className="tag-pill tag-chip-btn" onClick={() => removeTag(tag)}>
+                          #{tag} ×
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      className="field-input"
+                      placeholder="digite e pressione enter"
+                      value={tagInput}
+                      onChange={(e) => setTagInput(e.target.value)}
+                      onKeyDown={onTagInputKeyDown}
+                      onBlur={() => addTag(tagInput)}
+                    />
+                  </div>
                 </div>
                 <div>
                   <div className="field-label">modelo utilizado</div>
-                  <input className="field-input" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
+                  <select className="field-input" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })}>
+                    <option value="">selecione uma llm</option>
+                    {llms.map((llm) => (
+                      <option key={llm.id} value={llm.name}>
+                        {llm.name}
+                      </option>
+                    ))}
+                    {form.model && !llms.some((llm) => llm.name === form.model) ? (
+                      <option value={form.model}>{form.model} (nao cadastrada)</option>
+                    ) : null}
+                  </select>
                 </div>
               </div>
               <div>
@@ -1031,6 +1188,9 @@ export function PromptVaultApp() {
                 <button className={`btn-md ${adminTab === "users" ? "" : ""}`} onClick={() => setAdminTab("users")}>
                   usuarios ativos ({users.length})
                 </button>
+                <button className={`btn-md ${adminTab === "llms" ? "" : ""}`} onClick={() => setAdminTab("llms")}>
+                  llms ({adminLlms.length})
+                </button>
               </div>
 
               {adminTab === "pending" ? (
@@ -1079,7 +1239,7 @@ export function PromptVaultApp() {
                     <div style={{ fontSize: "14px", color: "var(--text2)" }}>sem prompts pendentes</div>
                   </div>
                 )
-              ) : (
+              ) : adminTab === "users" ? (
                 users.map((u) => (
                   <div key={u.id} className="card" style={{ cursor: "default" }}>
                     <div className="card-header">
@@ -1096,6 +1256,40 @@ export function PromptVaultApp() {
                     </div>
                   </div>
                 ))
+              ) : (
+                <>
+                  <div className="view-actions">
+                    <input
+                      className="field-input"
+                      placeholder="nova llm (ex.: gpt-4.1)"
+                      value={newLlmName}
+                      onChange={(event) => setNewLlmName(event.target.value)}
+                    />
+                    <button className="btn-copy" onClick={() => void handleAddLlm()}>
+                      cadastrar
+                    </button>
+                  </div>
+                  {adminLlms.length ? (
+                    adminLlms.map((llm) => (
+                      <div key={llm.id} className="card" style={{ cursor: "default" }}>
+                        <div className="card-header">
+                          <div className="card-title">
+                            {llm.name} {!llm.active ? <span className="llm-inactive-pill">inativa</span> : null}
+                          </div>
+                        </div>
+                        <div className="view-actions">
+                          <button className="btn-md" disabled={!llm.active} onClick={() => void handleDeleteLlm(llm.id)}>
+                            {llm.active ? "remover/inativar" : "inativa"}
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="empty" style={{ padding: 24 }}>
+                      <div style={{ fontSize: "14px", color: "var(--text2)" }}>nenhuma llm cadastrada</div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
             <div className="modal-footer">

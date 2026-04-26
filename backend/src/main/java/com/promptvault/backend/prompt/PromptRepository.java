@@ -18,4 +18,6 @@ public interface PromptRepository extends JpaRepository<Prompt, String> {
   long countByDeletedAtIsNotNull();
 
   List<Prompt> findAllByDeletedAtIsNullAndCreatedAtAfterOrderByCreatedAtDesc(OffsetDateTime createdAt);
+
+  boolean existsByModelIgnoreCase(String model);
 }
