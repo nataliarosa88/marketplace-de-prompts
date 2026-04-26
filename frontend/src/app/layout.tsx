@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "PromptVault",
-  description: "Biblioteca de prompts com Next.js e Spring Boot",
+  title: "Marketplace de Prompts (MP)",
+  description: "Marketplace de Prompts com Next.js e Spring Boot",
 };
 
 export default function RootLayout({

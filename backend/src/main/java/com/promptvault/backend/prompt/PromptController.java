@@ -36,23 +36,18 @@ public class PromptController {
   @ResponseStatus(HttpStatus.CREATED)
   @PreAuthorize("isAuthenticated()")
   public PromptResponse create(@RequestBody @Valid PromptRequest request, Authentication authentication) {
-    boolean isAdmin =
-        authentication != null
-            && authentication.getAuthorities().stream().anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
-    String author = request.author();
-    if (authentication instanceof JwtAuthenticationToken jwtToken) {
-      String email = jwtToken.getToken().getClaimAsString("email");
-      if (email != null && !email.isBlank()) {
-        author = email;
-      }
+    boolean isAdmin = isAdmin(authentication);
+    String author = resolveUserEmail(authentication);
+    if (author == null || author.isBlank()) {
+      author = request.author();
     }
     return service.create(request, isAdmin, author);
   }
 
   @PutMapping("/{id}")
   @PreAuthorize("isAuthenticated()")
-  public PromptResponse update(@PathVariable String id, @RequestBody @Valid PromptRequest request) {
-    return service.update(id, request);
+  public PromptResponse update(@PathVariable String id, @RequestBody @Valid PromptRequest request, Authentication authentication) {
+    return service.update(id, request, resolveUserEmail(authentication), isAdmin(authentication));
   }
 
   @PostMapping("/{id}/copy")
@@ -64,7 +59,22 @@ public class PromptController {
   @DeleteMapping("/{id}")
   @ResponseStatus(HttpStatus.NO_CONTENT)
   @PreAuthorize("isAuthenticated()")
-  public void delete(@PathVariable String id) {
-    service.delete(id);
+  public void delete(@PathVariable String id, Authentication authentication) {
+    service.delete(id, resolveUserEmail(authentication), isAdmin(authentication));
+  }
+
+  private boolean isAdmin(Authentication authentication) {
+    return authentication != null
+        && authentication.getAuthorities().stream().anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
+  }
+
+  private String resolveUserEmail(Authentication authentication) {
+    if (authentication instanceof JwtAuthenticationToken jwtToken) {
+      String email = jwtToken.getToken().getClaimAsString("email");
+      if (email != null && !email.isBlank()) {
+        return email;
+      }
+    }
+    return authentication == null ? null : authentication.getName();
   }
 }

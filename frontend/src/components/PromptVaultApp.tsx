@@ -7,6 +7,9 @@ import { copyPrompt as copyPromptApi } from "@/data/promptApi";
 import { Prompt } from "@/types/prompt";
 import { getToken } from "@/data/authStore";
 
+const PAGE_SIZE = 9;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export function PromptVaultApp() {
   const { user, isAdmin, login, register, logout } = useAuth();
   const { prompts, loading, error, search, setSearch, activeTag, setActiveTag, savePrompt, removePrompt, refresh } =
@@ -28,6 +31,12 @@ export function PromptVaultApp() {
   const [pending, setPending] = useState<Prompt[]>([]);
   const [pendingViewId, setPendingViewId] = useState<string | null>(null);
   const [users, setUsers] = useState<Array<{ id: string; email: string; active: boolean; roles: Array<"USER" | "ADMIN"> }>>([]);
+  const [activeTab, setActiveTab] = useState<"all" | "mine">("all");
+  const [categorySearch, setCategorySearch] = useState("");
+  const [showMoreCategories, setShowMoreCategories] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("promptvault_theme");
@@ -46,9 +55,15 @@ export function PromptVaultApp() {
     window.localStorage.setItem("promptvault_theme", theme);
   }, [theme]);
 
+  useEffect(() => {
+    const dismissed = window.localStorage.getItem("promptvault_onboarding_dismissed") === "1";
+    setOnboardingDismissed(dismissed);
+  }, []);
+
   const visiblePrompts = useMemo(() => {
     const q = search.toLowerCase();
     const list = prompts.filter((p) => {
+      const mineMatch = activeTab === "all" || (!!user?.email && (p.author ?? "").toLowerCase() === user.email.toLowerCase());
       const matchTag = activeTag === "all" || (p.tags ?? []).includes(activeTag);
       const matchQ =
         !q ||
@@ -56,7 +71,7 @@ export function PromptVaultApp() {
         p.body.toLowerCase().includes(q) ||
         (p.desc ?? "").toLowerCase().includes(q) ||
         (p.tags ?? []).join(" ").toLowerCase().includes(q);
-      return matchTag && matchQ;
+      return mineMatch && matchTag && matchQ;
     });
     return [...list].sort((a, b) => {
       if (sort === "newest") return (b.created ?? 0) - (a.created ?? 0);
@@ -65,7 +80,7 @@ export function PromptVaultApp() {
       if (sort === "copies") return (b.copies ?? 0) - (a.copies ?? 0);
       return 0;
     });
-  }, [activeTag, prompts, search, sort]);
+  }, [activeTab, activeTag, prompts, search, sort, user?.email]);
 
   const tagCounts = useMemo(() => {
     const counts: Record<string, number> = { all: prompts.length };
@@ -77,6 +92,40 @@ export function PromptVaultApp() {
     return counts;
   }, [prompts]);
 
+  const filteredCategoryEntries = useMemo(() => {
+    const normalized = categorySearch.trim().toLowerCase();
+    return Object.entries(tagCounts)
+      .sort((a, b) => (a[0] === "all" ? -1 : b[1] - a[1]))
+      .filter(([tag]) => {
+        if (!normalized) return true;
+        return tag.toLowerCase().includes(normalized);
+      });
+  }, [categorySearch, tagCounts]);
+
+  const visibleCategories = useMemo(() => {
+    const limit = showMoreCategories ? 10 : 5;
+    const allTag = filteredCategoryEntries.find(([tag]) => tag === "all");
+    const others = filteredCategoryEntries.filter(([tag]) => tag !== "all");
+    const limited = others.slice(0, limit);
+    return allTag ? [allTag, ...limited] : limited;
+  }, [filteredCategoryEntries, showMoreCategories]);
+
+  const totalPages = Math.max(1, Math.ceil(visiblePrompts.length / PAGE_SIZE));
+  const pagePrompts = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return visiblePrompts.slice(start, start + PAGE_SIZE);
+  }, [currentPage, visiblePrompts]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, activeTag, sort, activeTab]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   const selectedPrompt = useMemo(
     () => prompts.find((p) => p.id === currentViewId) ?? null,
     [currentViewId, prompts],
@@ -85,6 +134,40 @@ export function PromptVaultApp() {
     () => pending.find((p) => p.id === pendingViewId) ?? null,
     [pendingViewId, pending],
   );
+  const reviewerTips = useMemo(() => {
+    const tips: string[] = [];
+    const normalizedTitle = form.title.trim();
+    const normalizedBody = form.body.trim();
+    const normalizedDesc = form.desc.trim();
+    const hasOutputHint = /\b(formato|saida|output|retorne|json|markdown|lista)\b/i.test(normalizedBody);
+    const hasContextHint = /\b(contexto|publico|objetivo|tom|restricao|limite)\b/i.test(normalizedBody);
+    const hasActionVerb = /\b(crie|gere|escreva|resuma|explique|avalie|traduza)\b/i.test(normalizedBody);
+
+    if (normalizedTitle.length < 8) {
+      tips.push("esta sem titulo completo");
+    } else if (normalizedTitle.split(/\s+/).length < 3) {
+      tips.push("titulo pode ser mais especifico");
+    }
+    if (normalizedDesc.length < 20) {
+      tips.push("a descricao pode melhorar: esta curta");
+    }
+    if (normalizedBody.length < 80) {
+      tips.push("prompt curto: inclua contexto e objetivo");
+    }
+    if (!hasActionVerb) {
+      tips.push("faltou um verbo de acao claro (ex.: crie, gere, explique)");
+    }
+    if (!hasContextHint) {
+      tips.push("adicione contexto (publico, objetivo, tom ou restricoes)");
+    }
+    if (!hasOutputHint) {
+      tips.push("defina formato de saida esperado (json, lista, markdown...)");
+    }
+    if (tips.length === 0) {
+      tips.push("prompt bem estruturado");
+    }
+    return tips;
+  }, [form.body, form.desc, form.title]);
 
   function showToast(message: string) {
     setToast(message);
@@ -106,6 +189,10 @@ export function PromptVaultApp() {
   function openEdit(id: string) {
     const prompt = prompts.find((p) => p.id === id);
     if (!prompt) return;
+    if (!canEditPrompt(prompt)) {
+      showToast("Apenas o autor pode editar este prompt");
+      return;
+    }
     setEditingId(id);
     setForm({
       title: prompt.title,
@@ -131,8 +218,8 @@ export function PromptVaultApp() {
       model: form.model.trim() || undefined,
       desc: form.desc.trim() || undefined,
     };
-    if (!payload.title || !payload.body) {
-      showToast("Titulo e prompt sao obrigatorios");
+    if (!payload.title || !payload.body || !payload.desc) {
+      showToast("Titulo, prompt e descricao curta sao obrigatorios");
       return;
     }
     await savePrompt(editingId, payload);
@@ -143,6 +230,10 @@ export function PromptVaultApp() {
       return;
     }
     showToast(isAdmin ? "Prompt publicado" : "Prompt enviado para moderacao");
+  }
+
+  function validateEmail(email: string) {
+    return EMAIL_REGEX.test(email.trim());
   }
 
   async function handleCopy(prompt: Prompt) {
@@ -157,6 +248,29 @@ export function PromptVaultApp() {
     await removePrompt(id);
     setCurrentViewId(null);
     showToast("Prompt removido");
+  }
+
+  function canEditPrompt(prompt: Prompt) {
+    if (isAdmin) return true;
+    if (!user?.email) return false;
+    return (prompt.author ?? "").toLowerCase() === user.email.toLowerCase();
+  }
+
+  function dismissOnboarding() {
+    window.localStorage.setItem("promptvault_onboarding_dismissed", "1");
+    setOnboardingDismissed(true);
+  }
+
+  function formatCreatedAt(value?: number) {
+    return new Date(value ?? Date.now()).toLocaleString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
   }
 
   async function handleClearAll() {
@@ -200,7 +314,7 @@ export function PromptVaultApp() {
     const tags = (p.tags ?? []).map((t) => `\`${t}\``).join(" ");
     return `# ${p.title}\n\n${p.desc ? `> ${p.desc}\n\n` : ""}**Modelo:** ${p.model || "nao especificado"}  \n**Tags:** ${
       tags || "—"
-    }  \n**Criado:** ${new Date(p.created ?? Date.now()).toLocaleDateString("pt-BR")}  \n\n---\n\n\`\`\`\n${
+    }  \n**Criado:** ${formatCreatedAt(p.created)}  \n\n---\n\n\`\`\`\n${
       p.body
     }\n\`\`\`\n`;
   }
@@ -210,7 +324,7 @@ export function PromptVaultApp() {
     const blob = new Blob([md], { type: "text/markdown" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `promptvault-export-${Date.now()}.md`;
+    a.download = `marketplace-prompts-export-${Date.now()}.md`;
     a.click();
     showToast(`${prompts.length} prompts exportados`);
   }
@@ -286,7 +400,7 @@ export function PromptVaultApp() {
       <header>
         <div className="header-inner">
           <a className="logo" href="#">
-            <div className="logo-icon">PV</div>Prompt<span>Vault</span>
+            <div className="logo-icon">MP</div>Marketplace<span> de Prompts</span>
           </a>
           <div className="nav-pills">
             <span onClick={openNew}>~/new</span>
@@ -388,7 +502,8 @@ export function PromptVaultApp() {
             <button className="btn-new" onClick={openNew}>
               <span className="btn-new-icon" aria-hidden="true">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+                  <path d="M5 7l6 5-6 5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M13 17h6" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
                 </svg>
               </span>
               novo prompt
@@ -426,10 +541,46 @@ export function PromptVaultApp() {
       <div className="main-wrap">
         <aside className="sidebar">
           <div className="sidebar-section">
+            <div className="sidebar-label">// feed</div>
+            <div className="view-actions">
+              <button className={`btn-md ${activeTab === "all" ? "active-tab" : ""}`} onClick={() => setActiveTab("all")}>
+                todos
+              </button>
+              <button
+                className={`btn-md ${activeTab === "mine" ? "active-tab" : ""}`}
+                onClick={() => {
+                  if (!user) {
+                    setAuthMode("login");
+                    setLoginOpen(true);
+                    return;
+                  }
+                  setActiveTab("mine");
+                }}
+              >
+                meus prompts
+              </button>
+            </div>
+          </div>
+          <div className="sidebar-section">
             <div className="sidebar-label">// categorias</div>
+            <div className="category-search-wrap">
+              <input
+                className="field-input category-search"
+                placeholder="buscar categoria"
+                value={categorySearch}
+                list="category-suggestions"
+                onChange={(event) => setCategorySearch(event.target.value)}
+              />
+              <datalist id="category-suggestions">
+                {Object.keys(tagCounts)
+                  .filter((tag) => tag !== "all")
+                  .map((tag) => (
+                    <option key={tag} value={tag} />
+                  ))}
+              </datalist>
+            </div>
             <div className="tag-list">
-              {Object.entries(tagCounts)
-                .sort((a, b) => (a[0] === "all" ? -1 : b[1] - a[1]))
+              {visibleCategories
                 .map(([tag, count]) => (
                   <div
                     className={`tag-item ${activeTag === tag ? "active" : ""}`}
@@ -441,6 +592,11 @@ export function PromptVaultApp() {
                   </div>
                 ))}
             </div>
+            {filteredCategoryEntries.filter(([tag]) => tag !== "all").length > 5 ? (
+              <button className="btn-md category-toggle" onClick={() => setShowMoreCategories((prev) => !prev)}>
+                {showMoreCategories ? "mostrar menos" : "mostrar mais"}
+              </button>
+            ) : null}
           </div>
           <hr className="divider" />
           <div className="sidebar-section">
@@ -471,7 +627,7 @@ export function PromptVaultApp() {
         <main>
           <div className="grid-header">
             <div className="grid-info">
-              mostrando <b>{visiblePrompts.length}</b> de <b>{prompts.length}</b> prompts
+              mostrando <b>{pagePrompts.length}</b> de <b>{visiblePrompts.length}</b> prompts
             </div>
             <div className="sort-btns">
               <button className={`sort-btn ${viewMode === "grid" ? "active" : ""}`} onClick={() => setViewMode("grid")}>
@@ -485,7 +641,7 @@ export function PromptVaultApp() {
           {loading ? <p>Carregando prompts...</p> : null}
           {error ? <p className="error">{error}</p> : null}
           <div className="cards-grid" style={{ gridTemplateColumns: viewMode === "list" ? "1fr" : undefined }}>
-            {!visiblePrompts.length ? (
+            {!pagePrompts.length ? (
               <div className="empty">
                 <div className="empty-code">[ ]</div>
                 <div style={{ fontSize: "14px", color: "var(--text2)" }}>nenhum prompt encontrado</div>
@@ -493,39 +649,69 @@ export function PromptVaultApp() {
                 <button onClick={openNew}>+ adicionar prompt</button>
               </div>
             ) : (
-              visiblePrompts.map((p) => (
-                <div className="card" key={p.id} onClick={() => setCurrentViewId(p.id)}>
+              pagePrompts.map((p) => (
+                <div className={`card ${expandedCards[p.id] ? "expanded" : ""}`} key={p.id}>
                   <div className="card-header">
                     <div className="card-title">{p.title}</div>
                     <div className="card-actions" onClick={(e) => e.stopPropagation()}>
                       <button className="icon-btn" onClick={() => void handleCopy(p)}>
                         cp
                       </button>
-                      <button className="icon-btn" onClick={() => openEdit(p.id)}>
-                        ed
-                      </button>
-                      <button className="icon-btn del" onClick={() => void handleDelete(p.id)}>
-                        rm
-                      </button>
+                      {canEditPrompt(p) ? (
+                        <>
+                          <button className="icon-btn" onClick={() => openEdit(p.id)}>
+                            ed
+                          </button>
+                          <button className="icon-btn del" onClick={() => void handleDelete(p.id)}>
+                            rm
+                          </button>
+                        </>
+                      ) : null}
                     </div>
                   </div>
-                  <div className="card-preview">{p.body.slice(0, 180)}{p.body.length > 180 ? "..." : ""}</div>
+                  <div
+                    className="prompt-expand-bar"
+                    onClick={() => setExpandedCards((prev) => ({ ...prev, [p.id]: !prev[p.id] }))}
+                  >
+                    {expandedCards[p.id] ? "recolher prompt" : "expandir prompt"}
+                  </div>
+                  {expandedCards[p.id] ? <div className="card-preview">{p.body}</div> : null}
+                  <div className="card-desc">{p.desc || "sem descricao curta"}</div>
                   <div className="card-footer">
-                    {(p.tags ?? []).slice(0, 3).map((t) => (
+                    {(p.tags ?? []).slice(0, 2).map((t) => (
                       <span className="tag-pill" key={t}>
                         #{t}
                       </span>
                     ))}
-                    {p.copies > 0 ? <span className="copy-badge">x{p.copies}</span> : null}
-                    <span className="meta">
-                      {new Date(p.created ?? Date.now()).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
-                      {p.model ? ` · ${p.model}` : ""}
-                    </span>
+                    <span className="meta">autor: {p.author || "anonimo"}</span>
+                    <span className="copy-badge">copiado {p.copies ?? 0}x</span>
+                  </div>
+                  <div className="card-open-row">
+                    <button className="btn-md" onClick={() => setCurrentViewId(p.id)}>
+                      ver card expandido
+                    </button>
                   </div>
                 </div>
               ))
             )}
           </div>
+          {totalPages > 1 ? (
+            <div className="pagination">
+              <button className="btn-md" disabled={currentPage === 1} onClick={() => setCurrentPage((prev) => prev - 1)}>
+                anterior
+              </button>
+              <span>
+                pagina <b>{currentPage}</b> de <b>{totalPages}</b>
+              </span>
+              <button
+                className="btn-md"
+                disabled={currentPage === totalPages}
+                onClick={() => setCurrentPage((prev) => prev + 1)}
+              >
+                proxima
+              </button>
+            </div>
+          ) : null}
         </main>
       </div>
 
@@ -559,13 +745,26 @@ export function PromptVaultApp() {
                   <input className="field-input" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
                 </div>
                 <div>
-                  <div className="field-label">modelo alvo</div>
+                  <div className="field-label">modelo utilizado</div>
                   <input className="field-input" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
                 </div>
               </div>
               <div>
                 <div className="field-label">descricao curta</div>
-                <input className="field-input" value={form.desc} onChange={(e) => setForm({ ...form, desc: e.target.value })} />
+                <input
+                  className="field-input"
+                  required
+                  value={form.desc}
+                  onChange={(e) => setForm({ ...form, desc: e.target.value })}
+                />
+              </div>
+              <div className="review-box">
+                <div className="field-label">agente revisor (v2)</div>
+                {reviewerTips.map((tip) => (
+                  <div key={tip} className="review-item">
+                    {tip}
+                  </div>
+                ))}
               </div>
             </div>
             <div className="modal-footer">
@@ -596,7 +795,7 @@ export function PromptVaultApp() {
             </div>
             <div className="modal-body">
               <div className="view-meta">
-                criado {new Date(selectedPrompt.created ?? Date.now()).toLocaleDateString("pt-BR")}
+                criado {formatCreatedAt(selectedPrompt.created)}
                 {selectedPrompt.author ? ` · autor: ${selectedPrompt.author}` : ""}
                 {selectedPrompt.model ? ` · modelo: ${selectedPrompt.model}` : ""}
                 {selectedPrompt.copies ? ` · copiado ${selectedPrompt.copies}x` : ""}
@@ -639,9 +838,11 @@ export function PromptVaultApp() {
                 >
                   baixar .md
                 </button>
-                <button className="btn-cancel" style={{ marginLeft: "auto" }} onClick={() => openEdit(selectedPrompt.id)}>
-                  editar
-                </button>
+                {canEditPrompt(selectedPrompt) ? (
+                  <button className="btn-cancel" style={{ marginLeft: "auto" }} onClick={() => openEdit(selectedPrompt.id)}>
+                    editar
+                  </button>
+                ) : null}
               </div>
             </div>
           </div>
@@ -652,6 +853,39 @@ export function PromptVaultApp() {
         <div className="toast">
           <span className="dot" />
           {toast}
+        </div>
+      ) : null}
+
+      {!user && !onboardingDismissed ? (
+        <div className="overlay" onClick={(e) => (e.target === e.currentTarget ? dismissOnboarding() : null)}>
+          <div className="modal onboarding-modal">
+            <div className="modal-header">
+              <div className="modal-title">
+                <span>// onboarding</span> <span className="blink">_</span>
+              </div>
+            </div>
+            <div className="modal-body">
+              <div className="onboarding-title">Entre para criar e salvar seus prompts</div>
+              <div className="onboarding-copy">
+                Com login, voce cria prompts, acompanha copias e usa a aba de prompts pessoais.
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn-cancel" onClick={dismissOnboarding}>
+                depois
+              </button>
+              <button
+                className="btn-save"
+                onClick={() => {
+                  dismissOnboarding();
+                  setAuthMode("login");
+                  setLoginOpen(true);
+                }}
+              >
+                fazer login
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -688,6 +922,7 @@ export function PromptVaultApp() {
                 <div className="field-label">email</div>
                 <input
                   className="field-input"
+                  type="email"
                   value={authMode === "login" ? loginForm.email : registerForm.email}
                   onChange={(ev) =>
                     authMode === "login"
@@ -739,10 +974,18 @@ export function PromptVaultApp() {
                 onClick={async () => {
                   try {
                     if (authMode === "login") {
+                      if (!validateEmail(loginForm.email)) {
+                        showToast("email invalido");
+                        return;
+                      }
                       await login(loginForm.email, loginForm.password);
                     } else {
                       if (!registerForm.email.trim() || !registerForm.password) {
                         showToast("preencha email e senha");
+                        return;
+                      }
+                      if (!validateEmail(registerForm.email)) {
+                        showToast("email invalido");
                         return;
                       }
                       if (registerForm.password.length < 8) {
@@ -877,7 +1120,7 @@ export function PromptVaultApp() {
             </div>
             <div className="modal-body">
               <div className="view-meta">
-                criado {new Date(selectedPendingPrompt.created ?? Date.now()).toLocaleDateString("pt-BR")}
+                criado {formatCreatedAt(selectedPendingPrompt.created)}
                 {selectedPendingPrompt.author ? ` · autor: ${selectedPendingPrompt.author}` : ""}
                 {selectedPendingPrompt.model ? ` · modelo: ${selectedPendingPrompt.model}` : ""}
               </div>

@@ -9,6 +9,6 @@ public record PromptRequest(
     String author,
     List<String> tags,
     String model,
-    String desc,
+    @NotBlank String desc,
     Integer copies
 ) {}
