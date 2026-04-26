@@ -105,8 +105,8 @@ public class PromptService {
   private void apply(PromptRequest request, Prompt prompt, String fallbackAuthor) {
     prompt.setTitle(request.title().trim());
     prompt.setBody(request.body().trim());
-    String author = request.author() != null && !request.author().isBlank() ? request.author().trim() : fallbackAuthor;
-    prompt.setAuthor(author == null || author.isBlank() ? "unknown" : author);
+    String author = fallbackAuthor == null ? "" : fallbackAuthor.trim();
+    prompt.setAuthor(author.isBlank() ? "unknown" : author);
     prompt.setTags(request.tags() == null ? List.of() : request.tags().stream().map(String::trim).toList());
     prompt.setModel(request.model() == null ? null : request.model().trim());
     prompt.setDescription(request.desc().trim());

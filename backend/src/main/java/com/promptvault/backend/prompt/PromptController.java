@@ -38,9 +38,6 @@ public class PromptController {
   public PromptResponse create(@RequestBody @Valid PromptRequest request, Authentication authentication) {
     boolean isAdmin = isAdmin(authentication);
     String author = resolveUserEmail(authentication);
-    if (author == null || author.isBlank()) {
-      author = request.author();
-    }
     return service.create(request, isAdmin, author);
   }
 

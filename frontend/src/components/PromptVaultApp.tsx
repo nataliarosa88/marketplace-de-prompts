@@ -242,7 +242,6 @@ export function PromptVaultApp() {
     const payload = {
       title: form.title.trim(),
       body: form.body.trim(),
-      author: form.author.trim() || undefined,
       tags: form.tags,
       model: form.model.trim() || undefined,
       desc: form.desc.trim() || undefined,
@@ -868,7 +867,7 @@ export function PromptVaultApp() {
               </div>
               <div>
                 <div className="field-label">autor</div>
-                <input className="field-input" value={form.author} onChange={(e) => setForm({ ...form, author: e.target.value })} />
+                <input className="field-input" value={form.author} disabled />
               </div>
               <div className="field-row">
                 <div>
