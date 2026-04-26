@@ -1,4 +1,4 @@
-# Marketplace de Prompts (MP)
+# Marketplace de Prompts
 
 ## Como rodar com Docker Compose (rápido)
 
@@ -325,8 +325,8 @@ Validação recomendada de fluxo:
 - Tratamento explícito de `403` para tentativas sem permissão.
 - Validação de email no fluxo de autenticação no frontend.
 
-### Marco 6 — Marketplace de Prompts (MP)
-- Rebranding de PromptVault para Marketplace de Prompts (MP).
+### Marco 6 — Marketplace de Prompts
+- Rebranding de PromptVault para Marketplace de Prompts.
 - Ajustes de microcopy e metadata.
 - Melhorias no card para consumo rápido (informação essencial primeiro).
 - Data de criação com horário completo (hora, minuto e segundo).
