@@ -21,6 +21,7 @@ export default function SecretAdminPage() {
   const [newLlmName, setNewLlmName] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [accessError, setAccessError] = useState<string | null>(null);
 
   const pendingCount = pending.length;
   const activeLlms = useMemo(() => llms.filter((m) => m.active), [llms]);
@@ -33,8 +34,13 @@ export default function SecretAdminPage() {
   async function loadPending() {
     if (!secret) return;
     setLoading(true);
+    setAccessError(null);
     try {
       setPending(await fetchPendingPrompts(secret));
+    } catch (err) {
+      const message = (err as Error).message || "Falha ao carregar pendentes";
+      setPending([]);
+      setAccessError(message);
     } finally {
       setLoading(false);
     }
@@ -43,8 +49,13 @@ export default function SecretAdminPage() {
   async function loadLlms() {
     if (!secret) return;
     setLoading(true);
+    setAccessError(null);
     try {
       setLlms(await fetchAdminLlms(secret));
+    } catch (err) {
+      const message = (err as Error).message || "Falha ao carregar LLMs";
+      setLlms([]);
+      setAccessError(message);
     } finally {
       setLoading(false);
     }
@@ -118,8 +129,16 @@ export default function SecretAdminPage() {
           ) : (
             <>
               {loading ? <p>Carregando...</p> : null}
+              {accessError ? (
+                <div className="empty" style={{ padding: 24 }}>
+                  <div style={{ fontSize: "14px", color: "var(--text2)" }}>sem permissao para acessar admin</div>
+                  <p style={{ marginTop: 8 }}>
+                    Verifique o secret na URL. Erro da API: <code>{accessError}</code>
+                  </p>
+                </div>
+              ) : null}
 
-              {tab === "pending" ? (
+              {!accessError && tab === "pending" ? (
                 pending.length ? (
                   pending.map((p) => (
                     <div key={p.id} className="card" style={{ cursor: "default" }}>
@@ -174,7 +193,7 @@ export default function SecretAdminPage() {
                     <div style={{ fontSize: "14px", color: "var(--text2)" }}>sem prompts pendentes</div>
                   </div>
                 )
-              ) : (
+              ) : !accessError ? (
                 <>
                   <div className="view-actions" style={{ marginBottom: 12 }}>
                     <input
@@ -239,7 +258,7 @@ export default function SecretAdminPage() {
                     </div>
                   )}
                 </>
-              )}
+              ) : null}
             </>
           )}
         </main>

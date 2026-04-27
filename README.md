@@ -457,6 +457,7 @@ Erros comuns:
 | `403 Sem permissao` | Secret incorreto | Usar mesmo valor do `ADMIN_SECRET` |
 | `Could not resolve placeholder` | Env faltando | Definir `ADMIN_SECRET` |
 | `Port 8080 already in use` | Porta ocupada | Liberar porta ou alterar mapeamento |
+| `blocked by CORS policy` no painel `/s` (3000 → 8080) | Sem Spring Security, só um `CorsConfigurationSource` não aplica headers no servlet | O backend registra um `CorsFilter` em `backend/.../config/CorsConfig.java` |
 
 ---
 
