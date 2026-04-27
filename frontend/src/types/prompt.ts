@@ -16,7 +16,7 @@ export type Prompt = {
 export type PromptInput = {
   title: string;
   body: string;
-  author?: string;
+  email: string;
   tags: string[];
   model?: string;
   desc?: string;

@@ -3,7 +3,6 @@ package com.promptvault.backend.prompt;
 import jakarta.persistence.EntityNotFoundException;
 import java.time.OffsetDateTime;
 import java.util.List;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -45,52 +44,12 @@ public class PromptService {
   }
 
   public PromptResponse create(PromptRequest request) {
-    return create(request, false, request.author());
-  }
-
-  public PromptResponse create(PromptRequest request, boolean autoApprove, String fallbackAuthor) {
     Prompt prompt = new Prompt();
-    apply(request, prompt, fallbackAuthor);
-    prompt.setAuthorizedAt(autoApprove ? OffsetDateTime.now() : null);
+    apply(request, prompt);
+    // sem login: sempre entra como pendente para aprovacao via URL secreta
+    prompt.setAuthorizedAt(null);
     prompt.setDeletedAt(null);
     return PromptResponse.from(repository.save(prompt));
-  }
-
-  public PromptResponse update(String id, PromptRequest request) {
-    return update(id, request, null, true);
-  }
-
-  public PromptResponse update(String id, PromptRequest request, String actorEmail, boolean isAdmin) {
-    Prompt prompt = repository.findById(id).orElseThrow(() -> new EntityNotFoundException("Prompt nao encontrado"));
-    if (prompt.getDeletedAt() != null) {
-      throw new IllegalArgumentException("Prompt reprovado nao pode ser editado");
-    }
-    ensureOwnerOrAdmin(prompt, actorEmail, isAdmin);
-    apply(request, prompt, prompt.getAuthor());
-    return PromptResponse.from(repository.save(prompt));
-  }
-
-  public void delete(String id) {
-    delete(id, null, true);
-  }
-
-  public void delete(String id, String actorEmail, boolean isAdmin) {
-    Prompt prompt = repository.findById(id).orElseThrow(() -> new EntityNotFoundException("Prompt nao encontrado"));
-    ensureOwnerOrAdmin(prompt, actorEmail, isAdmin);
-    repository.deleteById(id);
-  }
-
-  private void ensureOwnerOrAdmin(Prompt prompt, String actorEmail, boolean isAdmin) {
-    if (isAdmin) {
-      return;
-    }
-    if (actorEmail == null || actorEmail.isBlank()) {
-      throw new AccessDeniedException("Sem permissao para alterar este prompt");
-    }
-    String promptAuthor = prompt.getAuthor() == null ? "" : prompt.getAuthor().trim();
-    if (!promptAuthor.equalsIgnoreCase(actorEmail.trim())) {
-      throw new AccessDeniedException("Apenas o autor pode alterar este prompt");
-    }
   }
 
   public PromptResponse incrementCopy(String id) {
@@ -102,11 +61,10 @@ public class PromptService {
     return PromptResponse.from(repository.save(prompt));
   }
 
-  private void apply(PromptRequest request, Prompt prompt, String fallbackAuthor) {
+  private void apply(PromptRequest request, Prompt prompt) {
     prompt.setTitle(request.title().trim());
     prompt.setBody(request.body().trim());
-    String author = fallbackAuthor == null ? "" : fallbackAuthor.trim();
-    prompt.setAuthor(author.isBlank() ? "unknown" : author);
+    prompt.setAuthor(request.email().trim().toLowerCase());
     prompt.setTags(request.tags() == null ? List.of() : request.tags().stream().map(String::trim).toList());
     prompt.setModel(request.model() == null ? null : request.model().trim());
     prompt.setDescription(request.desc().trim());

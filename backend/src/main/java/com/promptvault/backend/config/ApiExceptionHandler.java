@@ -3,11 +3,11 @@ package com.promptvault.backend.config;
 import jakarta.persistence.EntityNotFoundException;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -29,9 +29,8 @@ public class ApiExceptionHandler {
     return Map.of("message", exception.getMessage());
   }
 
-  @ExceptionHandler(AccessDeniedException.class)
-  @ResponseStatus(HttpStatus.FORBIDDEN)
-  public Map<String, String> handleForbidden(AccessDeniedException exception) {
-    return Map.of("message", exception.getMessage());
+  @ExceptionHandler(ResponseStatusException.class)
+  public Map<String, String> handleStatus(ResponseStatusException exception) {
+    return Map.of("message", exception.getReason() == null ? "Erro" : exception.getReason());
   }
 }

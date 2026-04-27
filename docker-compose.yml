@@ -20,6 +20,7 @@ services:
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: postgres
       SERVER_PORT: 8080
+      ADMIN_SECRET: ${ADMIN_SECRET:-change-me}
     ports:
       - "8080:8080"
 

@@ -12,6 +12,7 @@ type PromptFormProps = {
 export function PromptForm({ selectedPrompt, onSave, onClose }: PromptFormProps) {
   const [title, setTitle] = useState(selectedPrompt?.title ?? "");
   const [body, setBody] = useState(selectedPrompt?.body ?? "");
+  const [email, setEmail] = useState(selectedPrompt?.author ?? "");
   const [tags, setTags] = useState(selectedPrompt?.tags.join(", ") ?? "");
   const [model, setModel] = useState(selectedPrompt?.model ?? "");
   const [desc, setDesc] = useState(selectedPrompt?.desc ?? "");
@@ -27,6 +28,7 @@ export function PromptForm({ selectedPrompt, onSave, onClose }: PromptFormProps)
     const payload: PromptInput = {
       title: title.trim(),
       body: body.trim(),
+      email: email.trim().toLowerCase(),
       tags: tags
         .split(",")
         .map((item) => item.trim().toLowerCase())
@@ -54,6 +56,10 @@ export function PromptForm({ selectedPrompt, onSave, onClose }: PromptFormProps)
       <label>
         Prompt
         <textarea value={body} onChange={(event) => setBody(event.target.value)} required />
+      </label>
+      <label>
+        Email
+        <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required />
       </label>
       <label>
         Tags (separadas por virgula)

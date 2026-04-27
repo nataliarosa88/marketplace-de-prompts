@@ -9,7 +9,7 @@ import {
   useReducer,
   useState,
 } from "react";
-import { copyPrompt, createPrompt, deletePrompt, fetchPrompts, updatePrompt } from "@/data/promptApi";
+import { copyPrompt, createPrompt, fetchPrompts } from "@/data/promptApi";
 import { Prompt, PromptInput } from "@/types/prompt";
 
 type PromptState = {
@@ -54,7 +54,6 @@ type PromptContextValue = PromptState & {
   setSearch: (value: string) => void;
   refresh: () => Promise<void>;
   savePrompt: (id: string | null, payload: PromptInput) => Promise<void>;
-  removePrompt: (id: string) => Promise<void>;
   incrementCopies: (id: string) => Promise<void>;
 };
 
@@ -86,20 +85,9 @@ export function PromptProvider({ children }: { children: React.ReactNode }) {
   }, [refresh]);
 
   const save = useCallback(async (id: string | null, payload: PromptInput) => {
-    if (id) {
-      const result = await updatePrompt(id, payload);
-      dispatch({ type: "UPSERT", payload: result });
-      return;
-    }
-
     // novo prompt vai para moderacao (nao aparece no feed publico ate autorizacao)
     await createPrompt(payload);
     await refresh();
-  }, []);
-
-  const remove = useCallback(async (id: string) => {
-    await deletePrompt(id);
-    dispatch({ type: "REMOVE", payload: id });
   }, []);
 
   const incrementCopies = useCallback(async (id: string) => {
@@ -116,10 +104,9 @@ export function PromptProvider({ children }: { children: React.ReactNode }) {
       setSearch,
       refresh,
       savePrompt: save,
-      removePrompt: remove,
       incrementCopies,
     }),
-    [activeTag, refresh, remove, save, search, state, incrementCopies],
+    [activeTag, refresh, save, search, state, incrementCopies],
   );
 
   return <PromptContext.Provider value={value}>{children}</PromptContext.Provider>;

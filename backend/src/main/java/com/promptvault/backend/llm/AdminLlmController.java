@@ -4,8 +4,8 @@ import jakarta.persistence.EntityNotFoundException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.util.List;
+import com.promptvault.backend.admin.AdminSecretGuard;
 import com.promptvault.backend.prompt.PromptRepository;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -15,15 +15,16 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/admin/llms")
-@PreAuthorize("hasRole('ADMIN')")
+@RequestMapping("/api/s/{secret}/admin/llms")
 public class AdminLlmController {
   private final LlmModelRepository repository;
   private final PromptRepository promptRepository;
+  private final AdminSecretGuard guard;
 
-  public AdminLlmController(LlmModelRepository repository, PromptRepository promptRepository) {
+  public AdminLlmController(LlmModelRepository repository, PromptRepository promptRepository, AdminSecretGuard guard) {
     this.repository = repository;
     this.promptRepository = promptRepository;
+    this.guard = guard;
   }
 
   public record LlmModelResponse(String id, String name, boolean active) {
@@ -36,12 +37,14 @@ public class AdminLlmController {
   public record DeleteLlmResponse(String id, String name, boolean active, boolean deleted) {}
 
   @GetMapping
-  public List<LlmModelResponse> listAll() {
+  public List<LlmModelResponse> listAll(@PathVariable String secret) {
+    guard.assertValid(secret);
     return repository.findAllByOrderByNameAsc().stream().map(LlmModelResponse::from).toList();
   }
 
   @PostMapping
-  public LlmModelResponse create(@RequestBody @Valid CreateLlmRequest request) {
+  public LlmModelResponse create(@PathVariable String secret, @RequestBody @Valid CreateLlmRequest request) {
+    guard.assertValid(secret);
     String normalizedName = request.name().trim();
     LlmModel existing = repository.findByNameIgnoreCase(normalizedName).orElse(null);
     if (existing != null) {
@@ -59,7 +62,8 @@ public class AdminLlmController {
   }
 
   @DeleteMapping("/{id}")
-  public DeleteLlmResponse delete(@PathVariable String id) {
+  public DeleteLlmResponse delete(@PathVariable String secret, @PathVariable String id) {
+    guard.assertValid(secret);
     LlmModel model = repository.findById(id).orElseThrow(() -> new EntityNotFoundException("LLM nao encontrada"));
     boolean wasUsed = promptRepository.existsByModelIgnoreCase(model.getName());
     if (wasUsed) {
